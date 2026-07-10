@@ -14,9 +14,11 @@ Cómo levantar el proyecto (Windows PowerShell):
 
 2. Entra a la carpeta: cd TesisMatiasPacheco-MonitoreoRedesDeIncendios
 
-3. Crea el archivo de variables de entorno a partir del ejemplo: Copy-Item .env.example .env
+3. Levanta los contenedores: docker compose up
 
-4. Levanta los contenedores: docker compose up -d --build
+La primera vez tarda unos minutos construyendo las imágenes. Cuando los contenedores estén arriba, abrir http://localhost:8080 en el navegador.
+
+Opcional: si se quieren cambiar los puertos publicados, copiar el archivo de ejemplo con Copy-Item .env.example .env y editarlo. Sin este archivo se usan los puertos por defecto (8080 y 8766).
 
 Dónde se ve:
 
