@@ -1,0 +1,10 @@
+FROM python:3.12-alpine
+
+WORKDIR /app
+
+ENV PYTHONUNBUFFERED=1
+
+RUN pip install --no-cache-dir paho-mqtt==2.1.0 websockets psycopg2-binary
+
+COPY Backend/  ./Backend/
+COPY Simulador/ ./Simulador/

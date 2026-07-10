@@ -1,0 +1,142 @@
+name: iot-prevencion-incendios-v4
+
+services:
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: iot-mosquitto-v4
+    volumes:
+      - ./docker/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    ports:
+      - "1883:1883"
+    networks:
+      - iot-network
+    healthcheck:
+      test: ["CMD", "mosquitto_pub", "-h", "localhost", "-t", "healthcheck", "-m", "ok"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.python
+    container_name: iot-backend-v4
+    command: ["python", "Backend/backend_server.py"]
+    environment:
+      MQTT_HOST: mosquitto
+      CSV_PATH: /app/datos/registro_sensores.csv
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: cimubb
+      DB_USER: cimubb
+      DB_PASSWORD: cimubb123
+    ports:
+      - "${WS_PORT:-8766}:8766"
+    volumes:
+      - ./datos:/app/datos
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - iot-network
+    restart: unless-stopped
+
+  nodo-01:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.python
+    container_name: iot-nodo-01-v4
+    command: ["python", "Simulador/esp32_simulator.py", "--nodo", "1"]
+    environment:
+      MQTT_HOST: mosquitto
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    networks:
+      - iot-network
+    restart: unless-stopped
+
+  nodo-02:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.python
+    container_name: iot-nodo-02-v4
+    command: ["python", "Simulador/esp32_simulator.py", "--nodo", "2"]
+    environment:
+      MQTT_HOST: mosquitto
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    networks:
+      - iot-network
+    restart: unless-stopped
+
+  nodo-03:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.python
+    container_name: iot-nodo-03-v4
+    command: ["python", "Simulador/esp32_simulator.py", "--nodo", "3"]
+    environment:
+      MQTT_HOST: mosquitto
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    networks:
+      - iot-network
+    restart: unless-stopped
+
+  nodo-04:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.python
+    container_name: iot-nodo-04-v4
+    command: ["python", "Simulador/esp32_simulator.py", "--nodo", "4"]
+    environment:
+      MQTT_HOST: mosquitto
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    networks:
+      - iot-network
+    restart: unless-stopped
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dashboard
+    container_name: iot-dashboard-v4
+    ports:
+      - "${DASHBOARD_PORT:-8080}:80"
+    depends_on:
+      - backend
+    networks:
+      - iot-network
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: iot-postgres-v4
+    environment:
+      POSTGRES_USER: cimubb
+      POSTGRES_PASSWORD: cimubb123
+      POSTGRES_DB: cimubb
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cimubb"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - iot-network
+    restart: unless-stopped
+
+networks:
+  iot-network:
+    driver: bridge
+
+volumes:
+  postgres-data:

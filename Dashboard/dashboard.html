@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Prevención Incendios — CIMUBB</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@700&family=Syne:wght@700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="dashboard.css?v=9">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="dashboard.js?v=9" defer></script>
+</head>
+<body>
+
+<div class="crit-vignette" id="critVignette"></div>
+
+<header class="header">
+  <div class="hdr-content">
+    <div class="hdr-logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 3c.6 3 3.2 4 3.2 7.2A3.2 3.2 0 0 1 12 13.4a3.2 3.2 0 0 1-3.2-3.2c0-1 .5-1.8 1-2.4"/>
+        <path d="M12 21a6 6 0 0 0 6-6c0-3-2-5-3.4-7 .4 2-.6 3.4-2 4.6C11 8.4 9.5 6.6 9.6 4.4 7.6 6.4 6 8.6 6 12a6 6 0 0 0 6 9z"/>
+      </svg>
+    </div>
+    <div>
+      <div class="hdr-title">Prevención de Incendios</div>
+      <div class="hdr-sub">Red de monitoreo — CIMUBB</div>
+    </div>
+  </div>
+  <div class="hdr-status">
+    <div class="stat-chip online" id="chipOnline"><span id="chipOnlineTxt">0 online</span></div>
+    <div class="stat-chip alert" id="chipAlert"><span id="chipAlertTxt">0 alertas</span></div>
+    <div class="stat-chip ws" id="wsBadge"><span id="wsDot" class="ws-dot"></span><span id="wsTxt">conectando</span></div>
+  </div>
+</header>
+
+<div class="crit-banner" id="critBanner"></div>
+
+<div class="layout">
+
+  <div class="sidebar-left">
+    <div class="state-panel" id="statePanel">
+      <div class="sp-icon" id="spIcon">OK</div>
+      <div class="sp-text">
+        <div class="sp-level" id="spLevel">Todo bien</div>
+        <div class="sp-detail" id="spDetail">Sistema en rango normal</div>
+      </div>
+    </div>
+
+    <div class="control-section">
+      <label class="btn-file">CARGAR EXCEL<input type="file" accept=".xlsx" style="display:none" onchange="loadExcel(this)"></label>
+      <button class="btn-file" onclick="openNodeModal()">GESTIONAR NODOS</button>
+      <button class="btn-action" onclick="simAlert()">SIMULAR CRÍTICO</button>
+      <button class="btn-action" onclick="clearAlertLog()">LIMPIAR REGISTRO</button>
+    </div>
+
+    <div class="stats-box">
+      <div class="stat-row"><span>Paquetes</span><span id="sPkts">0</span></div>
+      <div class="stat-row"><span>Alertas</span><span id="sAlerts">0</span></div>
+      <div class="stat-row"><span>Nodos online</span><span id="sNodos">0</span></div>
+      <div class="stat-row"><span>Últ. alerta</span><span id="sLastAlert">—</span></div>
+    </div>
+  </div>
+
+  <div class="main-content">
+    <div class="grid-nodos" id="nodeGrid"></div>
+  </div>
+
+  <div class="sidebar-right">
+    <div class="charts-section">
+      <div class="chart-box">
+        <div class="cb-title">Temperatura (°C)</div>
+        <canvas id="chart-temp"></canvas>
+      </div>
+      <div class="chart-box">
+        <div class="cb-title">Humo (ppm)</div>
+        <canvas id="chart-humo"></canvas>
+      </div>
+    </div>
+    <div class="event-log">
+      <div class="el-title">Registro de Alertas</div>
+      <div class="el-list" id="eventLogList"></div>
+      <button class="el-toggle" id="elToggle" onclick="toggleLogView()" style="display:none">VER TODOS</button>
+    </div>
+  </div>
+
+</div>
+
+<div class="modal-overlay" id="nodeModal">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-title">Gestión de Nodos</div>
+      <button class="modal-close" onclick="closeNodeModal()">X</button>
+    </div>
+    <div class="modal-body">
+      <div class="nm-list" id="nmList"></div>
+      <div class="nm-form">
+        <div class="nm-form-title" id="nmFormTitle">Agregar nodo</div>
+        <input type="text" id="nmId" placeholder="ID del nodo (ej: ESP32-Nodo-05)">
+        <input type="text" id="nmZona" placeholder="Zona (ej: Zona-E)">
+        <div class="nm-sensores" id="nmSensores">
+          <label><input type="checkbox" value="temperatura" checked> Temperatura</label>
+          <label><input type="checkbox" value="humedad" checked> Humedad</label>
+          <label><input type="checkbox" value="presion" checked> Presión</label>
+          <label><input type="checkbox" value="humo" checked> Humo</label>
+          <label><input type="checkbox" value="detector" checked> Detector</label>
+          <label><input type="checkbox" value="fuga" checked> Fuga</label>
+        </div>
+        <div class="nm-actions">
+          <button class="nm-save" onclick="submitNodeForm()">GUARDAR</button>
+          <button class="nm-cancel" onclick="resetNodeForm()">CANCELAR</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
