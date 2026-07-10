@@ -1,5 +1,4 @@
 import asyncio
-import csv
 import os
 import json
 import math
@@ -26,7 +25,6 @@ MQTT_TOPIC_SUB = "cimubb/+/sensores"
 WS_HOST = "0.0.0.0"
 WS_PORT = 8766
 
-ARCHIVO_CSV = os.getenv("CSV_PATH", "registro_sensores.csv")
 BUFFER_SIZE = 200
 
 NODO_TIMEOUT_S  = 60.0
@@ -47,12 +45,6 @@ CAMPO_POR_SENSOR = {
     "detector":    "detector_activo",
     "fuga":        "fuga_detectada",
 }
-
-COLUMNAS_CSV = [
-    "Fecha/Hora", "NodeID", "Zona",
-    "Temperatura", "Humedad", "Presion_bar",
-    "Humo_ppm", "Detector_activo", "Fuga_detectada",
-]
 
 dashboards     = set()
 buffer_datos   = deque(maxlen=BUFFER_SIZE)
@@ -92,28 +84,6 @@ def cargar_nodos_registro():
             nodos_estado[n["node_id"]] = {"online": False, "last_seen": None, "zona": n["zona"]}
     if nodos_registro:
         print(f"[NODOS] {len(nodos_registro)} nodo(s) cargados del registro")
-
-
-def guardar_csv(datos: dict):
-    def celda(v):
-        return "" if v is None else v
-
-    existe = os.path.isfile(ARCHIVO_CSV)
-    with open(ARCHIVO_CSV, "a", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=COLUMNAS_CSV, extrasaction="ignore")
-        if not existe:
-            w.writeheader()
-        w.writerow({
-            "Fecha/Hora":      datos.get("timestamp", datetime.now().isoformat()),
-            "NodeID":          datos.get("node_id", "?"),
-            "Zona":            datos.get("zona", "—"),
-            "Temperatura":     celda(datos.get("temperatura")),
-            "Humedad":         celda(datos.get("humedad")),
-            "Presion_bar":     celda(datos.get("presion_bar")),
-            "Humo_ppm":        celda(datos.get("humo_ppm")),
-            "Detector_activo": celda(datos.get("detector_activo")),
-            "Fuga_detectada":  celda(datos.get("fuga_detectada")),
-        })
 
 
 def procesar_paquete(raw: dict) -> dict:
@@ -252,7 +222,6 @@ def _on_message(client, userdata, msg):
         }
 
         processed = procesar_paquete(raw)
-        guardar_csv(raw)
         db.guardar_alerta(processed)
         buffer_datos.append(processed)
 
@@ -433,7 +402,6 @@ async def main():
     print(f"  Backend IoT — Sistema Prevención Incendios CIMUBB")
     print(f"  MQTT subscriber: {MQTT_HOST}:{MQTT_PORT}")
     print(f"  WebSocket dashboard: ws://{WS_HOST}:{WS_PORT}")
-    print(f"  CSV: {ARCHIVO_CSV}")
     if db.conectado():
         print(f"  PostgreSQL: {db.DB_USER}@{db.DB_HOST}:{db.DB_PORT}/{db.DB_NAME}")
     print(f"{'='*55}\n")

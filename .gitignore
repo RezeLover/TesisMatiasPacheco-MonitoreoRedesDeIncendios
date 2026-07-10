@@ -1,13 +1,9 @@
 .env
 
-datos/*.csv
-
 __pycache__/
 *.pyc
 
 *.log
-
-.claude/
 
 Thumbs.db
 .DS_Store

@@ -25,7 +25,6 @@ services:
     command: ["python", "Backend/backend_server.py"]
     environment:
       MQTT_HOST: mosquitto
-      CSV_PATH: /app/datos/registro_sensores.csv
       DB_HOST: postgres
       DB_PORT: "5432"
       DB_NAME: cimubb
@@ -33,8 +32,6 @@ services:
       DB_PASSWORD: cimubb123
     ports:
       - "${WS_PORT:-8766}:8766"
-    volumes:
-      - ./datos:/app/datos
     depends_on:
       mosquitto:
         condition: service_healthy
