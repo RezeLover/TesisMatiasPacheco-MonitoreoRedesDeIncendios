@@ -6,8 +6,6 @@ const MAX_LOG     = 50;
 let ws           = null;
 let pktCount     = 0;
 let alertCount   = 0;
-let excelTimer   = null;
-let excelPaused  = false;
 let selectedNode = null;
 
 const nodes = new Map();
@@ -556,56 +554,6 @@ function updateBadgeWS(state) {
   } else {
     txt.textContent = 'conectando';
   }
-}
-
-function loadExcel(input) {
-  const file = input.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    try {
-      const wb = XLSX.read(e.target.result, { type: 'array' });
-      const sh = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(sh, { defval: '' });
-      if (!rows.length) { alert('Archivo vacio o sin formato correcto.'); return; }
-      reproducirExcel(rows);
-    } catch (err) { alert('No se pudo leer el archivo.'); }
-  };
-  reader.readAsArrayBuffer(file);
-  input.value = '';
-}
-
-function mapExcelRow(row) {
-  return {
-    node_id: row['NodeID'] || row['node_id'] || 'Excel',
-    zona: row['Zona'] || row['zona'] || '—',
-    timestamp: row['Fecha/Hora'] || row['timestamp'] || new Date().toISOString(),
-    temperatura: parseFloat(row['Temperatura'] || row['temperatura'] || 0),
-    humedad: parseFloat(row['Humedad'] || row['humedad'] || 0),
-    presion_bar: parseFloat(row['Presion_bar'] || row['presion_bar'] || 0),
-    humo_ppm: parseInt(row['Humo_ppm'] || row['humo_ppm'] || 0),
-    detector_activo: row['Detector_activo'] === true || row['Detector_activo'] === 'true' || row['Detector_activo'] === 'ACTIVO',
-    fuga_detectada: row['Fuga_detectada'] === true || row['Fuga_detectada'] === 'true' || row['Fuga_detectada'] === 'FUGA DETECTADA',
-    alert: false, alertas: [], nivel: 'OK',
-  };
-}
-
-function reproducirExcel(rows) {
-  let idx = 0;
-  excelPaused = false;
-
-  excelTimer = setInterval(() => {
-    if (excelPaused) return;
-    if (idx >= rows.length) {
-      clearInterval(excelTimer); excelTimer = null;
-      return;
-    }
-    renderPaquete(mapExcelRow(rows[idx++]));
-  }, 1000);
-}
-
-function pausarExcel() {
-  excelPaused = !excelPaused;
 }
 
 function simAlert() {

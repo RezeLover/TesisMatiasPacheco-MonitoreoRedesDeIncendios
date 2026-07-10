@@ -6,10 +6,9 @@
   <title>Prevención Incendios — CIMUBB</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@700&family=Syne:wght@700;800;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="dashboard.css?v=9">
+  <link rel="stylesheet" href="dashboard.css?v=10">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-  <script src="dashboard.js?v=9" defer></script>
+  <script src="dashboard.js?v=10" defer></script>
 </head>
 <body>
 
@@ -49,7 +48,6 @@
     </div>
 
     <div class="control-section">
-      <label class="btn-file">CARGAR EXCEL<input type="file" accept=".xlsx" style="display:none" onchange="loadExcel(this)"></label>
       <button class="btn-file" onclick="openNodeModal()">GESTIONAR NODOS</button>
       <button class="btn-action" onclick="simAlert()">SIMULAR CRÍTICO</button>
       <button class="btn-action" onclick="clearAlertLog()">LIMPIAR REGISTRO</button>
