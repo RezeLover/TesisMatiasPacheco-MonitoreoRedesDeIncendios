@@ -1,4 +1,4 @@
-const WS_URL      = "ws://localhost:8766";
+const WS_URL      = `ws://${window.location.hostname || "localhost"}:8766`;
 const MAX_POINTS  = 40;
 const LOG_PREVIEW = 10;
 const MAX_LOG     = 50;
