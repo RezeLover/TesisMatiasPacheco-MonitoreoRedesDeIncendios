@@ -61,6 +61,12 @@ def sensores_de_paquete(raw: dict) -> list:
     return [s for s, campo in CAMPO_POR_SENSOR.items() if campo in raw]
 
 
+def filtrar_por_sensores(raw: dict, sensores: list) -> dict:
+    permitidos = {CAMPO_POR_SENSOR[s] for s in sensores if s in CAMPO_POR_SENSOR}
+    campos_sensor = set(CAMPO_POR_SENSOR.values())
+    return {k: v for k, v in raw.items() if k not in campos_sensor or k in permitidos}
+
+
 def lista_nodos_registro() -> list:
     return [
         {"node_id": nid, "zona": info["zona"], "sensores": info["sensores"]}
@@ -214,6 +220,7 @@ def _on_message(client, userdata, msg):
             print(f"[NODOS] Nodo detectado y registrado: {nid}")
         else:
             raw["zona"] = nodos_registro[nid]["zona"]
+            raw = filtrar_por_sensores(raw, nodos_registro[nid]["sensores"])
 
         nodos_estado[nid] = {
             "online":    True,
@@ -331,9 +338,11 @@ async def handler_dashboard(ws):
                         demo_task = None
 
                 elif action == "sim_alerta":
+                    nid_sim = "ESP32-Nodo-01"
+                    reg = nodos_registro.get(nid_sim)
                     raw_alert = {
-                        "node_id":         "ESP32-Nodo-01",
-                        "zona":            nodos_registro.get("ESP32-Nodo-01", {}).get("zona", "Zona-A"),
+                        "node_id":         nid_sim,
+                        "zona":            reg["zona"] if reg else "Zona-A",
                         "timestamp":       datetime.now().isoformat(),
                         "temperatura":     68.5,
                         "humedad":         12.0,
@@ -342,6 +351,8 @@ async def handler_dashboard(ws):
                         "detector_activo": False,
                         "fuga_detectada":  True,
                     }
+                    if reg:
+                        raw_alert = filtrar_por_sensores(raw_alert, reg["sensores"])
                     proc = procesar_paquete(raw_alert)
                     db.guardar_alerta(proc)
                     await broadcast(json.dumps(proc))
