@@ -4,7 +4,8 @@ WORKDIR /app
 
 ENV PYTHONUNBUFFERED=1
 
-RUN pip install --no-cache-dir paho-mqtt==2.1.0 websockets psycopg2-binary
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY Backend/  ./Backend/
 COPY Simulador/ ./Simulador/

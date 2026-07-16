@@ -3,5 +3,6 @@ FROM nginx:1.25-alpine
 COPY Dashboard/dashboard.html /usr/share/nginx/html/index.html
 COPY Dashboard/dashboard.css  /usr/share/nginx/html/dashboard.css
 COPY Dashboard/dashboard.js   /usr/share/nginx/html/dashboard.js
+COPY Dashboard/chart.umd.js   /usr/share/nginx/html/chart.umd.js
 
 EXPOSE 80

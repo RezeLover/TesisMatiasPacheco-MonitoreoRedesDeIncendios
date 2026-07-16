@@ -71,36 +71,6 @@ services:
       - iot-network
     restart: unless-stopped
 
-  nodo-03:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.python
-    container_name: iot-nodo-03-v4
-    command: ["python", "Simulador/esp32_simulator.py", "--nodo", "3"]
-    environment:
-      MQTT_HOST: mosquitto
-    depends_on:
-      mosquitto:
-        condition: service_healthy
-    networks:
-      - iot-network
-    restart: unless-stopped
-
-  nodo-04:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.python
-    container_name: iot-nodo-04-v4
-    command: ["python", "Simulador/esp32_simulator.py", "--nodo", "4"]
-    environment:
-      MQTT_HOST: mosquitto
-    depends_on:
-      mosquitto:
-        condition: service_healthy
-    networks:
-      - iot-network
-    restart: unless-stopped
-
   dashboard:
     build:
       context: .

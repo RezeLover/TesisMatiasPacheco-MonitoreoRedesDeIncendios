@@ -56,6 +56,7 @@ def _crear_tablas():
             creado_en TIMESTAMPTZ DEFAULT now()
         )
     """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_alertas_creado_en ON alertas (creado_en DESC)")
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS nodos (
             node_id VARCHAR(64) PRIMARY KEY,

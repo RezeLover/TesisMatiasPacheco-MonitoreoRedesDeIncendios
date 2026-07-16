@@ -30,8 +30,8 @@ Servicios:
 
 - mosquitto: broker MQTT que recibe los datos de los nodos.
 - backend (backend_server.py): procesa las lecturas, detecta alertas por umbral, las guarda en PostgreSQL y las retransmite al dashboard.
-- nodo-01 a nodo-04: simuladores de nodos ESP32 que publican lecturas de sensores por MQTT.
+- nodo-01 y nodo-02: simuladores de nodos ESP32 que publican lecturas de sensores por MQTT.
 - postgres: base de datos con el historial de alertas y el registro de nodos.
 - dashboard (nginx): visualiza en vivo las lecturas, alertas y estado de cada nodo.
 
-Nota: los nodos simulados (nodo-01 a nodo-04) reemplazan a los ESP32 físicos, que se integrarán después conectándolos al mismo broker MQTT.
+Nota: los simuladores arrancan en espera y se activan con el botón INICIAR SIMULACIÓN del dashboard. Complementan a los nodos ESP32 físicos, que se conectan al mismo broker MQTT.

@@ -11,6 +11,7 @@ import paho.mqtt.client as mqtt
 
 MQTT_HOST     = os.getenv("MQTT_HOST", "localhost")
 MQTT_PORT     = int(os.getenv("MQTT_PORT", "1883"))
+SIM_CONTROL   = "cimubb/sim/control"
 SEND_INTERVAL = 15.0
 
 ZONA_DEFAULT = {1: "Zona-A", 2: "Zona-B", 3: "Zona-C", 4: "Zona-D"}
@@ -89,6 +90,7 @@ def main():
 
     sensor    = SensorSimulator(node_id, zona)
     ack_event = threading.Event()
+    sim_on    = threading.Event()
 
     print(f"\n{'='*55}")
     print(f"  Simulador ESP32: {node_id}  |  {zona}")
@@ -102,13 +104,24 @@ def main():
         if rc == 0:
             print(f"[{node_id}] Conectado al broker MQTT {MQTT_HOST}:{MQTT_PORT}")
             client.subscribe(topic_ack)
+            client.subscribe(SIM_CONTROL)
         else:
             print(f"[{node_id}] Error de conexión MQTT (rc={rc})")
 
     def on_message(client, userdata, msg):
         try:
-            ack = json.loads(msg.payload.decode())
-            print(f"  <- ACK pkt#{ack.get('pkt_num')}  nivel={ack.get('nivel', '?')}")
+            data = json.loads(msg.payload.decode())
+            if msg.topic == SIM_CONTROL:
+                if data.get("activo"):
+                    if not sim_on.is_set():
+                        print(f"[{node_id}] Simulación iniciada desde el dashboard")
+                    sim_on.set()
+                else:
+                    if sim_on.is_set():
+                        print(f"[{node_id}] Simulación detenida desde el dashboard")
+                    sim_on.clear()
+                return
+            print(f"  <- ACK pkt#{data.get('pkt_num')}  nivel={data.get('nivel', '?')}")
             ack_event.set()
         except Exception:
             pass
@@ -130,10 +143,19 @@ def main():
             time.sleep(5)
 
     client.loop_start()
-    print(f"[{node_id}] Enviando datos cada {SEND_INTERVAL}s...\n")
+    print(f"[{node_id}] En espera — la simulación se inicia desde el dashboard\n")
 
+    avisado = False
     try:
         while True:
+            if not sim_on.is_set():
+                if not avisado:
+                    print(f"[{node_id}] En espera de la orden de simulación...")
+                    avisado = True
+                sim_on.wait(timeout=2.0)
+                continue
+            avisado = False
+
             packet = sensor.tick()
             packet = {k: v for k, v in packet.items() if k not in campos_sensor or k in campos_activos}
             client.publish(topic_pub, json.dumps(packet))

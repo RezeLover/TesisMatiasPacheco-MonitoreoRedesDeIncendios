@@ -3,6 +3,22 @@ const MAX_POINTS  = 40;
 const LOG_PREVIEW = 10;
 const MAX_LOG     = 50;
 
+const ESCALAS = {
+  temp: { max: 90,  umbral: 55,  bajo: false },
+  humd: { max: 100, umbral: 20,  bajo: true  },
+  pres: { max: 6,   umbral: 1.5, bajo: true  },
+  humo: { max: 700, umbral: 300, bajo: false },
+};
+
+const SENSORES = [
+  { id: 'temperatura', corto: 'Temperatura',      largo: 'Temperatura ambiente' },
+  { id: 'humedad',     corto: 'Humedad',          largo: 'Humedad relativa del aire' },
+  { id: 'presion',     corto: 'Presion red',      largo: 'Presion de agua red seca' },
+  { id: 'humo',        corto: 'Humo',             largo: 'Concentracion de humo' },
+  { id: 'detector',    corto: 'Detector de humo', largo: 'Detector de humo (autodiagnostico)' },
+  { id: 'fuga',        corto: 'Fuga de agua',     largo: 'Fuga de agua en la red' },
+];
+
 let ws           = null;
 let pktCount     = 0;
 let alertCount   = 0;
@@ -19,6 +35,7 @@ let alarmTimer  = null;
 let alertLogEntries = [];
 let logExpanded = false;
 let editingId   = null;
+let simActivo   = false;
 
 function mkChart(id, color, yMin, yMax) {
   return new Chart(document.getElementById(id), {
@@ -60,6 +77,30 @@ function nivelDe(p) {
   return 'ok';
 }
 
+function sensorPorId(id) {
+  return SENSORES.find(s => s.id === id);
+}
+
+function metricaHTML(k, sensorId, unit) {
+  const s = sensorPorId(sensorId);
+  return `
+    <div class="ncm" data-k="${k}" title="${s.largo}">
+      <div class="ncm-top">
+        <span class="ncm-label">${s.corto}</span>
+        <span class="ncm-read"><span class="ncm-value">--</span><span class="ncm-unit">${unit}</span></span>
+      </div>
+      <div class="ncm-track"><div class="ncm-fill"></div><div class="ncm-danger"></div></div>
+    </div>`;
+}
+
+function lamparaHTML(k, sensorId) {
+  const s = sensorPorId(sensorId);
+  return `
+    <div class="lamprow" data-k="${k}" title="${s.largo}">
+      <span class="lamp"></span><span class="lamp-txt">${s.corto}</span>
+    </div>`;
+}
+
 function createCard(node) {
   const el = document.createElement('div');
   el.className = 'ncard';
@@ -69,14 +110,14 @@ function createCard(node) {
       <div class="ncard-nivel"></div>
     </div>
     <div class="ncard-metrics">
-      <div class="ncm" data-k="temp"><span class="ncm-label">Temp</span><span class="ncm-value">--</span><span class="ncm-unit">C</span></div>
-      <div class="ncm" data-k="hum"><span class="ncm-label">Humedad</span><span class="ncm-value">--</span><span class="ncm-unit">%</span></div>
-      <div class="ncm" data-k="pres"><span class="ncm-label">Presion</span><span class="ncm-value">--</span><span class="ncm-unit">bar</span></div>
-      <div class="ncm" data-k="humo"><span class="ncm-label">Humo</span><span class="ncm-value">--</span><span class="ncm-unit">ppm</span></div>
+      ${metricaHTML('temp', 'temperatura', '°C')}
+      ${metricaHTML('hum', 'humedad', '%')}
+      ${metricaHTML('pres', 'presion', 'bar')}
+      ${metricaHTML('humo', 'humo', 'ppm')}
     </div>
-    <div class="ncard-flags">
-      <div class="flag" data-k="det">Detector OK</div>
-      <div class="flag" data-k="fuga">Sin fuga</div>
+    <div class="ncard-lamps">
+      ${lamparaHTML('det', 'detector')}
+      ${lamparaHTML('fuga', 'fuga')}
     </div>`;
 
   el.addEventListener('click', () => selectNode(node.id));
@@ -94,6 +135,28 @@ function createCard(node) {
     det:   q('[data-k="det"]'),
     fuga:  q('[data-k="fuga"]'),
   };
+
+  ['temp', 'humd', 'pres', 'humo'].forEach(k => {
+    const esc  = ESCALAS[k];
+    const pct  = (esc.umbral / esc.max) * 100;
+    const zona = node.el[k].querySelector('.ncm-danger');
+    node.el[k].querySelector('.ncm-track').classList.add(esc.bajo ? 'bajo' : 'alto');
+    if (esc.bajo) { zona.style.left = '0'; zona.style.width = `${pct}%`; }
+    else          { zona.style.left = `${pct}%`; zona.style.right = '0'; }
+  });
+}
+
+function setMetrica(el, k, val, hot) {
+  const esc = ESCALAS[k];
+  const num = typeof val === 'number';
+  el.querySelector('.ncm-value').textContent = num ? (k === 'humo' ? val : val.toFixed(1)) : '--';
+  el.querySelector('.ncm-fill').style.width = num ? `${Math.max(0, Math.min(100, (val / esc.max) * 100))}%` : '0%';
+  el.classList.toggle('hot', !!hot);
+}
+
+function setLampara(el, bad, activa) {
+  el.classList.toggle('bad', activa && bad);
+  el.classList.toggle('ok', activa && !bad);
 }
 
 function updateCard(node) {
@@ -117,30 +180,20 @@ function updateCard(node) {
 
   const p = node.latest;
   if (!p) {
-    ['temp','humd','pres','humo'].forEach(k => { e[k].querySelector('.ncm-value').textContent = '--'; });
-    e.det.textContent = 'Detector OK'; e.det.classList.remove('bad');
-    e.fuga.textContent = 'Sin fuga'; e.fuga.classList.remove('bad');
+    ['temp', 'humd', 'pres', 'humo'].forEach(k => setMetrica(e[k], k, null, false));
+    setLampara(e.det, false, false);
+    setLampara(e.fuga, false, false);
     return;
   }
 
   const A = p.alertas || [];
-  const box = (el, val, unit, hot) => {
-    el.querySelector('.ncm-value').textContent = typeof val === 'number' ? (unit === 'ppm' ? val : val.toFixed(1)) : '--';
-    el.classList.toggle('hot', hot);
-  };
+  setMetrica(e.temp, 'temp', p.temperatura, A.some(a => a.startsWith('TEMP')));
+  setMetrica(e.humd, 'humd', p.humedad,     A.some(a => a.startsWith('HUMEDAD')));
+  setMetrica(e.pres, 'pres', p.presion_bar, A.some(a => a.startsWith('PRESION')));
+  setMetrica(e.humo, 'humo', p.humo_ppm,    A.some(a => a.startsWith('HUMO')));
 
-  box(e.temp, p.temperatura, 'C', A.some(a => a.startsWith('TEMP')));
-  box(e.humd, p.humedad, '%', A.some(a => a.startsWith('HUMEDAD')));
-  box(e.pres, p.presion_bar, 'bar', A.some(a => a.startsWith('PRESION')));
-  box(e.humo, p.humo_ppm, 'ppm', A.some(a => a.startsWith('HUMO')));
-
-  const detOk = p.detector_activo !== false;
-  e.det.textContent = detOk ? 'Detector OK' : 'Detector FALLA';
-  e.det.classList.toggle('bad', !detOk);
-
-  const fuga = p.fuga_detectada === true;
-  e.fuga.textContent = fuga ? 'FUGA DETECTADA' : 'Sin fuga';
-  e.fuga.classList.toggle('bad', fuga);
+  setLampara(e.det,  p.detector_activo === false, true);
+  setLampara(e.fuga, p.fuga_detectada === true,   true);
 }
 
 function upsertNode(p) {
@@ -181,60 +234,60 @@ function selectNode(id) {
 
 function recomputeGlobal() {
   let online = 0;
-  const crit = [], warn = [];
+  const critIds = [], critZonas = [], warnZonas = [];
   nodes.forEach(n => {
     if (!n.online) return;
     online++;
-    if (n.nivel === 'crit') crit.push(`${n.zona} (${n.id})`);
-    else if (n.nivel === 'warn') warn.push(`${n.zona} (${n.id})`);
+    if (n.nivel === 'crit') { critIds.push(n.id); critZonas.push(n.zona); }
+    else if (n.nivel === 'warn') { warnZonas.push(n.zona); }
   });
 
   document.getElementById('sNodos').textContent = online;
-  document.getElementById('chipOnlineTxt').textContent = `${online} online`;
+  document.getElementById('roNodosVal').textContent = `${online}/${nodes.size}`;
 
-  const chipAlert = document.getElementById('chipAlert');
-  const chipTxt   = document.getElementById('chipAlertTxt');
-  chipAlert.classList.toggle('hot', crit.length > 0);
-  chipTxt.textContent = `${crit.length + warn.length} alertas`;
+  document.getElementById('roAlertas').classList.toggle('hot', critIds.length > 0);
+  document.getElementById('roAlertasVal').textContent = critIds.length + warnZonas.length;
 
-  const sp = document.getElementById('statePanel');
-  const spIcon = document.getElementById('spIcon');
-  const spLevel = document.getElementById('spLevel');
+  const sp       = document.getElementById('statePanel');
+  const spLevel  = document.getElementById('spLevel');
   const spDetail = document.getElementById('spDetail');
-  const banner = document.getElementById('critBanner');
+  const banner   = document.getElementById('critBanner');
+  const mark     = document.getElementById('hdrMark');
 
-  if (crit.length) {
-    sp.className = 'state-panel crit';
-    spIcon.textContent = 'X'; spLevel.textContent = 'ESTADO CRITICO';
-    spDetail.textContent = `${crit.length} nodo(s) requiere accion inmediata`;
+  let estado;
+  if (critIds.length) {
+    estado = 'crit';
+    spLevel.textContent  = 'Critico';
+    spDetail.textContent = `${critIds.length} zona(s) requiere accion inmediata`;
     banner.className = 'crit-banner visible';
-    banner.textContent = `ALERTA CRITICA — ${crit.join(' | ')}`;
-  } else if (warn.length) {
-    sp.className = 'state-panel warn';
-    spIcon.textContent = '!'; spLevel.textContent = 'Advertencia';
-    spDetail.textContent = `${warn.length} nodo(s) requiere atencion`;
+    banner.textContent = `ALERTA CRITICA — ${critZonas.join('  |  ')}`;
+  } else if (warnZonas.length) {
+    estado = 'warn';
+    spLevel.textContent  = 'Advertencia';
+    spDetail.textContent = `${warnZonas.length} zona(s) requiere atencion`;
     banner.className = 'crit-banner';
   } else if (online) {
-    sp.className = 'state-panel ok';
-    spIcon.textContent = 'OK'; spLevel.textContent = 'Todo bien';
-    spDetail.textContent = `${online} nodo(s) en rango normal`;
+    estado = 'ok';
+    spLevel.textContent  = 'Sistema normal';
+    spDetail.textContent = `${online} zona(s) en rango normal`;
     banner.className = 'crit-banner';
   } else {
-    sp.className = 'state-panel';
-    spIcon.textContent = '—'; spLevel.textContent = 'Esperando datos';
+    estado = '';
+    spLevel.textContent  = 'Esperando datos';
     spDetail.textContent = 'Sin nodos aun';
     banner.className = 'crit-banner';
   }
+  sp.className   = `state-panel ${estado}`;
+  mark.className = `hdr-mark ${estado}`;
 
-  const critSet = new Set(crit);
-  const newCrit = crit.filter(id => !prevCritIds.has(id));
-  if (crit.length) {
+  const newCrit = critIds.filter(id => !prevCritIds.has(id));
+  if (critIds.length) {
     setCriticalMode(true);
     if (newCrit.length) selectNode(newCrit[0]);
   } else {
     setCriticalMode(false);
   }
-  prevCritIds = critSet;
+  prevCritIds = new Set(critIds);
 }
 
 function setCriticalMode(active) {
@@ -365,6 +418,8 @@ function connectWS() {
         renderAlertLog(data.data || []);
       } else if (data.type === 'alert_log_entry') {
         addAlertLogEntry(data.entry);
+      } else if (data.type === 'sim_estado') {
+        updateSimButton(!!data.activo);
       } else {
         renderPaquete(data);
       }
@@ -424,12 +479,12 @@ function redrawAlertLog() {
     const zona = e.zona || '—';
 
     const alertasTexto = (e.alertas || []).map(a => {
-      if (a.includes('TEMP_ALTA')) return `Temperatura: <span class="el-bad">${e.temperatura?.toFixed(1)}°C (alta)</span>`;
-      if (a.includes('HUMEDAD_BAJA')) return `Humedad: <span class="el-bad">${e.humedad?.toFixed(1)}% (baja)</span>`;
-      if (a.includes('PRESION_BAJA')) return `Presión: <span class="el-bad">${e.presion_bar?.toFixed(1)} bar (baja)</span>`;
-      if (a.includes('HUMO_ALTO')) return `Humo: <span class="el-bad">${e.humo_ppm} ppm (alto)</span>`;
-      if (a.includes('DETECTOR_SIN_RESPUESTA')) return `Detector: <span class="el-bad">sin respuesta</span>`;
-      if (a.includes('FUGA_DETECTADA')) return `Fuga: <span class="el-bad">detectada</span>`;
+      if (a.includes('TEMP_ALTA')) return `Temperatura ambiente: <span class="el-bad">${e.temperatura?.toFixed(1)}°C (alta)</span>`;
+      if (a.includes('HUMEDAD_BAJA')) return `Humedad relativa: <span class="el-bad">${e.humedad?.toFixed(1)}% (baja)</span>`;
+      if (a.includes('PRESION_BAJA')) return `Presión de red: <span class="el-bad">${e.presion_bar?.toFixed(1)} bar (baja)</span>`;
+      if (a.includes('HUMO_ALTO')) return `Concentración de humo: <span class="el-bad">${e.humo_ppm} ppm (alta)</span>`;
+      if (a.includes('DETECTOR_SIN_RESPUESTA')) return `Detector de humo: <span class="el-bad">no responde</span>`;
+      if (a.includes('FUGA_DETECTADA')) return `Fuga de agua: <span class="el-bad">detectada</span>`;
       return a;
     });
 
@@ -437,7 +492,7 @@ function redrawAlertLog() {
       <div class="el-head">
         <div>
           <div class="el-time">${ts}</div>
-          <div class="el-src">${zona} • ${e.node_id}</div>
+          <div class="el-src" title="${e.node_id || ''}">${zona}</div>
         </div>
         <span class="el-badge ${cssClase}">${nivel}</span>
       </div>
@@ -481,11 +536,11 @@ function renderNodeList() {
   nodosConfig.forEach(cfg => {
     const row = document.createElement('div');
     row.className = 'nm-row';
-    const sens = (cfg.sensores || []).join(', ') || 'sin sensores';
+    const sens = (cfg.sensores || []).map(id => sensorPorId(id)?.corto || id).join(' · ') || 'sin sensores';
     row.innerHTML = `
       <div class="nm-info">
-        <div class="nm-id">${cfg.node_id}</div>
-        <div class="nm-meta">${cfg.zona} · ${sens}</div>
+        <div class="nm-id">${cfg.zona}</div>
+        <div class="nm-meta">${cfg.node_id} · ${sens}</div>
       </div>
       <div class="nm-btns">
         <button onclick="editNode('${cfg.node_id}')">EDITAR</button>
@@ -499,7 +554,7 @@ function editNode(id) {
   const cfg = nodosConfig.get(id);
   if (!cfg) return;
   editingId = id;
-  document.getElementById('nmFormTitle').textContent = `Editar ${id}`;
+  document.getElementById('nmFormTitle').textContent = `Editar ${cfg.zona || id}`;
   const idInput = document.getElementById('nmId');
   idInput.value = id;
   idInput.disabled = true;
@@ -543,25 +598,48 @@ function sendCmd(cmd) {
 }
 
 function updateBadgeWS(state) {
-  const badge = document.getElementById('wsBadge');
-  const txt = document.getElementById('wsTxt');
-  badge.classList.remove('live');
+  const ro  = document.getElementById('roEnlace');
+  const txt = document.getElementById('roEnlaceVal');
+  ro.classList.remove('live');
   if (state === 'connected') {
-    badge.classList.add('live');
-    txt.textContent = 'conectado';
+    ro.classList.add('live');
+    txt.textContent = 'ACTIVO';
   } else if (state === 'disconnected') {
-    txt.textContent = 'desconectado';
+    txt.textContent = 'CAIDO';
   } else {
-    txt.textContent = 'conectando';
+    txt.textContent = '···';
   }
 }
 
 function simAlert() {
-  sendCmd('sim_alerta');
+  sendData({ cmd: 'sim_alerta', node_id: selectedNode });
+}
+
+function toggleSim() {
+  sendCmd(simActivo ? 'sim_stop' : 'sim_start');
+}
+
+function updateSimButton(activo) {
+  simActivo = activo;
+  const btn = document.getElementById('btnSim');
+  if (!btn) return;
+  btn.textContent = activo ? 'DETENER SIMULACIÓN' : 'INICIAR SIMULACIÓN';
+  btn.classList.toggle('sim-on', activo);
+}
+
+function renderSensorPicker() {
+  const box = document.getElementById('nmSensores');
+  if (!box) return;
+  box.innerHTML = SENSORES.map(s => `
+    <label class="nm-sen">
+      <input type="checkbox" value="${s.id}" checked>
+      <span class="nm-sen-name">${s.largo}</span>
+    </label>`).join('');
 }
 
 document.addEventListener('click', unlockAudio, { once: true });
 document.addEventListener('DOMContentLoaded', () => {
+  renderSensorPicker();
   const overlay = document.getElementById('nodeModal');
   if (overlay) overlay.addEventListener('click', (ev) => { if (ev.target === overlay) closeNodeModal(); });
   connectWS();

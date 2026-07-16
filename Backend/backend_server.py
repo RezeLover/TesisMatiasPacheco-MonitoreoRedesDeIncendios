@@ -1,9 +1,6 @@
 import asyncio
 import os
 import json
-import math
-import random
-import statistics
 from collections import deque
 from datetime import datetime
 
@@ -21,6 +18,7 @@ except ImportError:
 MQTT_HOST      = os.getenv("MQTT_HOST", "localhost")
 MQTT_PORT      = int(os.getenv("MQTT_PORT", "1883"))
 MQTT_TOPIC_SUB = "cimubb/+/sensores"
+SIM_CONTROL    = "cimubb/sim/control"
 
 WS_HOST = "0.0.0.0"
 WS_PORT = 8766
@@ -49,11 +47,10 @@ CAMPO_POR_SENSOR = {
 dashboards     = set()
 buffer_datos   = deque(maxlen=BUFFER_SIZE)
 pkt_counter    = 0
-stats_nodo     = {}
 nodos_estado   = {}
 nodos_registro = {}
-demo_activo    = False
-demo_task      = None
+sim_activo     = False
+mqtt_client    = None
 _loop          = None
 
 
@@ -96,29 +93,12 @@ def procesar_paquete(raw: dict) -> dict:
     global pkt_counter
     pkt_counter += 1
 
-    nid     = raw.get("node_id", "?")
     temp    = raw.get("temperatura")
     hum     = raw.get("humedad")
     presion = raw.get("presion_bar")
     humo    = raw.get("humo_ppm")
     det_ok  = raw.get("detector_activo")
     fuga    = raw.get("fuga_detectada")
-
-    if nid not in stats_nodo:
-        stats_nodo[nid] = {
-            "temperatura": deque(maxlen=20),
-            "humedad":     deque(maxlen=20),
-            "presion_bar": deque(maxlen=20),
-            "humo_ppm":    deque(maxlen=20),
-        }
-
-    s = stats_nodo[nid]
-    if temp    is not None: s["temperatura"].append(float(temp))
-    if hum     is not None: s["humedad"].append(float(hum))
-    if presion is not None: s["presion_bar"].append(float(presion))
-    if humo    is not None: s["humo_ppm"].append(int(humo))
-
-    def avg(d): return round(statistics.mean(d), 2) if d else None
 
     alertas = []
     nivel   = "OK"
@@ -131,16 +111,11 @@ def procesar_paquete(raw: dict) -> dict:
 
     return {
         **raw,
-        "pkt_num":     pkt_counter,
-        "server_ts":   datetime.now().isoformat(),
-        "nivel":       nivel,
-        "alert":       bool(alertas),
-        "alertas":     alertas,
-        "avg_temp":    avg(s["temperatura"]),
-        "avg_hum":     avg(s["humedad"]),
-        "avg_presion": avg(s["presion_bar"]),
-        "avg_humo":    avg(s["humo_ppm"]),
-        "nodos_activos": len([n for n in nodos_estado.values() if n["online"]]),
+        "pkt_num":   pkt_counter,
+        "server_ts": datetime.now().isoformat(),
+        "nivel":     nivel,
+        "alert":     bool(alertas),
+        "alertas":   alertas,
     }
 
 
@@ -173,7 +148,7 @@ async def broadcast(msg: str):
 
 
 async def broadcast_node_status():
-    await broadcast(json.dumps({"type": "node_status", "nodes": nodos_estado}))
+    await broadcast(json.dumps({"type": "node_status", "nodes": dict(nodos_estado)}))
 
 
 async def broadcast_nodos_config():
@@ -185,7 +160,7 @@ async def watchdog_nodos():
         await asyncio.sleep(WATCHDOG_TICK_S)
         ahora = datetime.now()
         cambio = False
-        for nid, info in nodos_estado.items():
+        for nid, info in list(nodos_estado.items()):
             if not info.get("online"):
                 continue
             try:
@@ -204,13 +179,25 @@ def _on_connect(client, userdata, flags, rc):
     if rc == 0:
         print(f"[MQTT] Conectado a {MQTT_HOST}:{MQTT_PORT}")
         client.subscribe(MQTT_TOPIC_SUB)
+        client.subscribe(SIM_CONTROL)
         print(f"[MQTT] Suscrito a {MQTT_TOPIC_SUB}")
     else:
         print(f"[MQTT] Error de conexión (rc={rc})")
 
 
 def _on_message(client, userdata, msg):
+    global sim_activo
     try:
+        if msg.topic == SIM_CONTROL:
+            estado = json.loads(msg.payload.decode())
+            sim_activo = bool(estado.get("activo"))
+            print(f"[SIM] Simulación {'activada' if sim_activo else 'detenida'}")
+            if _loop:
+                asyncio.run_coroutine_threadsafe(
+                    broadcast(json.dumps({"type": "sim_estado", "activo": sim_activo})), _loop
+                )
+            return
+
         raw = json.loads(msg.payload.decode())
         nid = raw.get("node_id", "?")
 
@@ -264,53 +251,20 @@ def _on_disconnect(client, userdata, rc):
     print(f"[MQTT] Desconectado del broker (rc={rc})")
 
 
-async def _demo_loop():
-    t = 0
-    demo_nodes = [
-        {"node_id": "ESP32-Demo-01", "zona": "Zona-A", "tb": 23.0, "hb": 55.0},
-        {"node_id": "ESP32-Demo-02", "zona": "Zona-B", "tb": 25.0, "hb": 50.0},
-    ]
-    print("[DEMO] Modo demo iniciado — generando datos simulados")
-    while demo_activo:
-        t += 1
-        for n in demo_nodes:
-            fire = random.random() > 0.97
-            raw = {
-                "node_id":          n["node_id"],
-                "zona":             n["zona"],
-                "timestamp":        datetime.now().isoformat(),
-                "temperatura":      round(n["tb"] + 4 * math.sin(t / 10) + random.gauss(0, 0.3), 1) if not fire else round(random.uniform(57, 75), 1),
-                "humedad":          round(max(15, min(80, n["hb"] + 8 * math.cos(t / 12))), 1)       if not fire else round(random.uniform(8, 18), 1),
-                "presion_bar":      round(random.uniform(2.5, 5.5) + 0.5 * math.sin(t / 40), 1),
-                "humo_ppm":         random.randint(50, 150) if not fire else random.randint(310, 600),
-                "detector_activo":  random.random() > 0.05,
-                "fuga_detectada":   random.random() > 0.97,
-                "pkt_num":          t,
-            }
-            nodos_estado[n["node_id"]] = {
-                "online":    True,
-                "last_seen": datetime.now().isoformat(),
-                "zona":      n["zona"],
-            }
-            processed = procesar_paquete(raw)
-            buffer_datos.append(processed)
-            await broadcast(json.dumps(processed))
-        await broadcast_node_status()
-        await asyncio.sleep(15.0)
-    print("[DEMO] Modo demo detenido")
+def publicar_sim_control(activo: bool):
+    if mqtt_client:
+        mqtt_client.publish(SIM_CONTROL, json.dumps({"activo": activo}), retain=True)
 
 
 async def handler_dashboard(ws):
-    global demo_activo, demo_task
     addr = ws.remote_address
     print(f"[DASH] Conectado: {addr}")
     dashboards.add(ws)
 
     if buffer_datos:
         await ws.send(json.dumps({
-            "type":  "history",
-            "data":  list(buffer_datos)[-50:],
-            "total": pkt_counter,
+            "type": "history",
+            "data": list(buffer_datos)[-50:],
         }))
 
     await ws.send(json.dumps({
@@ -320,6 +274,7 @@ async def handler_dashboard(ws):
 
     await ws.send(json.dumps({"type": "nodos_config", "nodos": lista_nodos_registro()}))
     await ws.send(json.dumps({"type": "node_status", "nodes": nodos_estado}))
+    await ws.send(json.dumps({"type": "sim_estado", "activo": sim_activo}))
 
     try:
         async for raw_msg in ws:
@@ -327,37 +282,36 @@ async def handler_dashboard(ws):
                 cmd = json.loads(raw_msg)
                 action = cmd.get("cmd")
 
-                if action == "demo_start" and not demo_activo:
-                    demo_activo = True
-                    demo_task = asyncio.create_task(_demo_loop())
+                if action == "sim_start":
+                    publicar_sim_control(True)
 
-                elif action == "demo_stop":
-                    demo_activo = False
-                    if demo_task:
-                        demo_task.cancel()
-                        demo_task = None
+                elif action == "sim_stop":
+                    publicar_sim_control(False)
 
                 elif action == "sim_alerta":
-                    nid_sim = "ESP32-Nodo-01"
-                    reg = nodos_registro.get(nid_sim)
-                    raw_alert = {
-                        "node_id":         nid_sim,
-                        "zona":            reg["zona"] if reg else "Zona-A",
-                        "timestamp":       datetime.now().isoformat(),
-                        "temperatura":     68.5,
-                        "humedad":         12.0,
-                        "presion_bar":     1.1,
-                        "humo_ppm":        450,
-                        "detector_activo": False,
-                        "fuga_detectada":  True,
-                    }
-                    if reg:
-                        raw_alert = filtrar_por_sensores(raw_alert, reg["sensores"])
-                    proc = procesar_paquete(raw_alert)
-                    db.guardar_alerta(proc)
-                    await broadcast(json.dumps(proc))
-                    if proc.get("alert"):
-                        await broadcast(json.dumps({"type": "alert_log_entry", "entry": entrada_alerta(proc)}))
+                    nid_sim = cmd.get("node_id")
+                    if nid_sim not in nodos_registro:
+                        nid_sim = next(iter(sorted(nodos_registro)), None)
+                    if nid_sim:
+                        reg = nodos_registro[nid_sim]
+                        raw_alert = filtrar_por_sensores({
+                            "node_id":         nid_sim,
+                            "zona":            reg["zona"],
+                            "timestamp":       datetime.now().isoformat(),
+                            "temperatura":     68.5,
+                            "humedad":         12.0,
+                            "presion_bar":     1.1,
+                            "humo_ppm":        450,
+                            "detector_activo": False,
+                            "fuga_detectada":  True,
+                        }, reg["sensores"])
+                        proc = procesar_paquete(raw_alert)
+                        db.guardar_alerta(proc)
+                        await broadcast(json.dumps(proc))
+                        if proc.get("alert"):
+                            await broadcast(json.dumps({"type": "alert_log_entry", "entry": entrada_alerta(proc)}))
+                    else:
+                        print("[SIM] No hay nodos registrados — nada que simular")
 
                 elif action in ("crear_nodo", "editar_nodo"):
                     nid = (cmd.get("node_id") or "").strip()
@@ -374,7 +328,6 @@ async def handler_dashboard(ws):
                     if nid:
                         nodos_registro.pop(nid, None)
                         nodos_estado.pop(nid, None)
-                        stats_nodo.pop(nid, None)
                         db.eliminar_nodo(nid)
                         print(f"[NODOS] Nodo eliminado: {nid}")
                         await broadcast_nodos_config()
@@ -391,7 +344,7 @@ async def handler_dashboard(ws):
 
 
 async def main():
-    global _loop
+    global _loop, mqtt_client
     _loop = asyncio.get_running_loop()
 
     db.conectar()
@@ -407,7 +360,7 @@ async def main():
         mqtt_client.loop_start()
     except Exception as e:
         print(f"[MQTT] No se pudo conectar al broker: {e}")
-        print("[MQTT] Corriendo solo WebSocket — usa Modo Demo en el dashboard\n")
+        print("[MQTT] Corriendo solo WebSocket — sin datos de nodos\n")
 
     print(f"\n{'='*55}")
     print(f"  Backend IoT — Sistema Prevención Incendios CIMUBB")
